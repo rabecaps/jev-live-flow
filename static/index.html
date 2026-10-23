@@ -30,7 +30,7 @@ const statusEl=document.getElementById('status');
 const fail=m=>{statusEl.textContent='ERR: '+m;statusEl.className='err';};
 window.addEventListener('error',e=>fail(e.message));
 
-const LIVE_URL='/live.json', MAX_ARMS=5;
+const LIVE_URL='./live.json', MAX_ARMS=5;
 const FONT="500 10.5px system-ui,'Segoe UI',sans-serif";
 const _mc=document.createElement('canvas').getContext('2d');
 const measure=(s,f)=>{_mc.font=f||FONT;return _mc.measureText(s).width;};
