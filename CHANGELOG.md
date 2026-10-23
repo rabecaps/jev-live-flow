@@ -1,3 +1,12 @@
+## 1.1.4 - 2026-10-24
+Snap the layout to three aligned columns.
+
+- Arms are drawn at one uniform width (the widest arm in the view) and every
+  chip starts at one x, so the graph reads as three clean columns -- origin,
+  arms, chips, total -- instead of a ragged stagger.
+- Verified across two chats with mixed long/short names: 1 arm width, 1 chip
+  left edge, 1 total x, 0 overlapping boxes.
+
 ## 1.1.3 - 2026-10-24
 Adaptive horizontal layout - no more node collisions on long model names.
 
