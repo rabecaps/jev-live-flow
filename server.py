@@ -14,8 +14,10 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import os
 import re
 import sqlite3
+import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -133,6 +135,49 @@ def load_titles() -> dict[str, str]:
     return titles
 
 
+def build_payload(cfg: FlowConfig) -> dict:
+    return {
+        "events": load_live(cfg),
+        "titles": load_titles(),
+        "config": {"window_minutes": cfg.window_minutes,
+                   "max_arms": cfg.max_arms,
+                   "poll_seconds": cfg.poll_seconds},
+        "generated_at": time.time(),
+    }
+
+
+def snapshot_target() -> Path | None:
+    """Where to publish a same-origin copy for the dashboard plugin iframe.
+
+    The web UI serves /static/* without auth, so a JSON file there is reachable
+    from the sandboxed plugin frame (which loses the session cookie, and cannot
+    call http://host:8780 from an https page).
+    """
+    override = os.environ.get("JEV_LIVE_FLOW_SNAPSHOT")
+    if override:
+        return Path(override).expanduser()
+    for candidate in (Path("/home/hermes/hermes-webui/static"),
+                      Path.home() / "hermes-webui" / "static"):
+        if candidate.is_dir():
+            return candidate / "jev-live-flow.json"
+    return None
+
+
+def publish_loop(cfg: FlowConfig, interval: float = 2.0) -> None:
+    target = snapshot_target()
+    if target is None:
+        return
+    while True:
+        try:
+            data = json.dumps(build_payload(cfg)).encode("utf-8")
+            tmp = target.with_suffix(".json.tmp")
+            tmp.write_bytes(data)
+            tmp.replace(target)          # atomic
+        except Exception:
+            pass
+        time.sleep(interval)
+
+
 class Handler(SimpleHTTPRequestHandler):
     cfg: FlowConfig = FlowConfig()
 
@@ -164,14 +209,7 @@ class Handler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/live.json":
             try:
-                self._json({
-                    "events": load_live(self.cfg),
-                    "titles": load_titles(),
-                    "config": {"window_minutes": self.cfg.window_minutes,
-                               "max_arms": self.cfg.max_arms,
-                               "poll_seconds": self.cfg.poll_seconds},
-                    "generated_at": time.time(),
-                })
+                self._json(build_payload(self.cfg))
             except Exception as exc:  # never 500 silently
                 self._json({"error": str(exc), "events": [], "titles": {}}, status=500)
             return
@@ -189,6 +227,7 @@ def main() -> None:
     cfg.host, cfg.port = args.host, args.port
 
     Handler.cfg = cfg
+    threading.Thread(target=publish_loop, args=(cfg,), daemon=True).start()
     httpd = ThreadingHTTPServer((cfg.host, cfg.port), Handler)
     print(f"jev-live-flow serving {STATIC_DIR} on http://{cfg.host}:{cfg.port}/", flush=True)
     print(f"  agent.log: {AGENT_LOG}", flush=True)
