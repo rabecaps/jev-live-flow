@@ -5,7 +5,7 @@
   "icon": "Activity",
   "version": "1.0.0",
   "tab": {
-    "path": "/jev-live-flow",
+    "path": "/dashboard-plugins/jev-live-flow/index.html",
     "position": "after:skills"
   },
   "entry": "dist/index.js",

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev Live Chat Flow</title>
+<script src="vendor/d3.min.js"></script>
+<style>
+  html,body{margin:0;background:#0b0f14;color:#e6edf3;font-family:system-ui,'Segoe UI',sans-serif;overflow:hidden;}
+  #top{display:flex;align-items:center;gap:12px;padding:9px 16px 4px;}
+  h1{font-size:14px;font-weight:600;margin:0;letter-spacing:.2px;color:#c9d1d9;}
+  .tools{display:flex;gap:5px;}
+  .tools button{background:#141a22;color:#aeb7c2;border:1px solid #212a34;border-radius:5px;
+    padding:0 9px;height:23px;font-size:12px;cursor:pointer;}
+  .tools button:hover{border-color:#3b82f6;color:#e6edf3;}
+  #status{margin-left:auto;font-size:11px;color:#6f7a87;font-family:ui-monospace,monospace;}
+  #status.err{color:#ef4444;}
+  #vis{display:block;width:100vw;height:calc(100vh - 40px);cursor:grab;}
+  #vis:active{cursor:grabbing;}
+  .node text{pointer-events:none;user-select:none;}
+</style></head>
+<body>
+<div id="top">
+  <h1>Hermes ⇄ Jev · live turn routing</h1>
+  <div class="tools"><button id="zin">+</button><button id="zout">−</button><button id="fit">Fit</button></div>
+  <div id="status">loading…</div>
+</div>
+<svg id="vis"></svg>
+<script>
+"use strict";
+const statusEl=document.getElementById('status');
+const fail=m=>{statusEl.textContent='ERR: '+m;statusEl.className='err';};
+window.addEventListener('error',e=>fail(e.message));
+
+const LIVE_URL=(function(){var h=location.hostname||'127.0.0.1';return 'http://'+h+':8780/live.json';})(), MAX_ARMS=5;
+const FONT="500 10.5px system-ui,'Segoe UI',sans-serif";
+const _mc=document.createElement('canvas').getContext('2d');
+const measure=(s,f)=>{_mc.font=f||FONT;return _mc.measureText(s).width;};
+
+const modelColor=m=>{
+  if(!m) return '#22c55e';
+  if(m.includes('deepseek')) return '#22c55e';
+  if(m.includes('openrouter')) return '#3b82f6';
+  if(m.includes('qwen')) return '#22d3ee';
+  if(m.includes('glm')) return '#f59e0b';
+  if(m.includes('nemotron')) return '#f472b6';
+  if(m.includes('gemini')) return '#818cf8';
+  return '#a78bfa';
+};
+const shortModel=m=>(m||'?').replace(/^[a-z0-9-]+\//i,'').replace(/-/g,' ');
+const fmtN=n=>n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':String(n||0);
+const fmt$=c=>'$'+(c||0).toFixed(3);
+
+const chats={};
+let titles={};
+let rowOrder=[];              // STABLE chat row order — never reshuffled by activity
+let svg,canvas,gLinks,gNodes,gParts,zoom;
+
+const STOP=new Set(['a','an','the','to','of','for','in','on','my','is','it','and','can',
+  'please','how','what','why','view','create','add','make','get','set','show','fix',
+  'update','check','need','needs','do','does','chat','session','live','with','from']);
+function shortTitle(id){
+  const raw=(titles[id]||'').trim();
+  if(!raw) return id.slice(0,8);
+  const words=raw.split(/\s+/).filter(w=>{
+    const k=w.toLowerCase().replace(/[^a-z0-9]/g,'');
+    return k && !STOP.has(k);
+  });
+  const pick=(words.length?words:raw.split(/\s+/)).slice(0,2).join(' ');
+  return (pick||id).replace(/[^\w\s.&/+-]/g,'').slice(0,24) || id.slice(0,8);
+}
+let hasFit=false,particles=[],raf=false,prevPos={};
+
+let turnCache={}, shownCalls={}, lastMaxCall={};
+
+function ingest(ev){
+  const seen={};
+  ev.forEach(e=>{
+    const sid=e.session||e.session_id||'chat';
+    const call=e.call||0;
+    turnCache[sid+':'+call]={
+      call, m:e.effective_model||e.requested_model, req:e.requested_model||'',
+      up:e.upstream||'', rm:e.real_model||'',
+      pt:e.prompt_tokens||0, ct:e.completion_tokens||0, cr:e.cache_read_tokens||0,
+      hk:(e.cache_pct!=null),
+      t:e.total_tokens||0, c:e.cost_usd||0, ts:e.ts||0
+    };
+    (seen[sid]=seen[sid]||[]).push(call);
+  });
+  Object.keys(seen).forEach(sid=>{
+    const calls=seen[sid].sort((a,b)=>a-b);
+    const max=calls[calls.length-1];
+    // ADVANCE THE ARM STACK ONLY WHEN A GENUINELY NEW TURN ARRIVES.
+    // Turns ageing out of the 15-min window must NOT reshuffle the stack.
+    if(shownCalls[sid]===undefined || max>(lastMaxCall[sid]||0)){
+      lastMaxCall[sid]=max;
+      shownCalls[sid]=calls.slice(-MAX_ARMS).reverse();   // newest first
+    }
+  });
+  Object.keys(seen).forEach(sid=>{
+    if(!chats[sid]) chats[sid]={count:0};
+    const calls=seen[sid];
+    chats[sid].count = Math.max(chats[sid].count||0, calls.length);
+    chats[sid].tok  = calls.reduce((a,n)=>a+(turnCache[sid+':'+n].t||0),0);
+    chats[sid].cost = calls.reduce((a,n)=>a+(turnCache[sid+':'+n].c||0),0);
+    chats[sid].lastTs = Math.max.apply(null,calls.map(n=>turnCache[sid+':'+n].ts||0));
+    chats[sid].arms = (shownCalls[sid]||[]).map(n=>turnCache[sid+':'+n]).filter(Boolean);
+  });
+}
+
+function boxFor(lines,padx,lineH){
+  const w=Math.ceil(Math.max.apply(null,lines.map(l=>measure(l))))+padx*2;
+  const h=lines.length*lineH+lineH*0.6;
+  return {w,h,lines};
+}
+
+function build(){
+  const CX={origin:120, arm:470, chip:680, sum:950};
+  const ROW_GAP=40, ARM_GAP=58;
+  // STABLE row order: append new chats, drop gone ones, never re-sort by activity
+  Object.keys(chats).forEach(id=>{ if(!rowOrder.includes(id)) rowOrder.push(id); });
+  for(let i=rowOrder.length-1;i>=0;i--){ if(!chats[rowOrder[i]]) rowOrder.splice(i,1); }
+  const rows=rowOrder.map(id=>[id,chats[id]]);
+  const nodes=[],links=[];
+  let y=50;
+
+  rows.forEach(([sid,c])=>{
+    const turns=(c.arms||[]);                        // frozen stack — newest first
+    const span=(Math.max(turns.length,1)-1)*ARM_GAP;
+    const rowH=span+78;
+    const rc=y+rowH/2;
+
+    const oLines=[shortTitle(sid)];
+    const ob=boxFor(oLines,16,14); ob.rx=ob.h/2;
+    nodes.push({id:'o:'+sid,kind:'origin',cx:CX.origin,cy:rc,w:ob.w,h:ob.h,rx:ob.rx,
+      col:'#3b82f6',lines:oLines,fillOp:0.11});
+
+    const sLines=['TOTAL · '+c.count+' turns', fmtN(c.tok)+' tok', fmt$(c.cost)];
+    const sb=boxFor(sLines,16,13); sb.rx=7;
+    nodes.push({id:'p:'+sid,kind:'summary',cx:CX.sum,cy:rc,w:sb.w,h:sb.h,rx:sb.rx,
+      col:'#a855f7',lines:sLines,fillOp:0.13});
+
+    const topY=rc-(turns.length-1)*ARM_GAP/2;
+    turns.forEach((t,j)=>{
+      const ay=topY+j*ARM_GAP;
+      const shown = t.rm || t.m;                     // real served model wins over requested
+      const col=modelColor(shown);
+      const free=/free/i.test(t.req||'');
+      const lines=[shortModel(shown), fmtN(t.t)+' tok · '+fmt$(t.c)];
+      const b=boxFor(lines,13,13); b.rx=6;
+      nodes.push({id:sid+':'+t.call,kind:'arm',cx:CX.arm,cy:ay,w:b.w,h:b.h,rx:b.rx,
+        col,lines,fillOp:0.13});
+      links.push({col,x0:CX.origin+ob.w/2,y0:rc,x1:CX.arm-b.w/2,y1:ay});
+
+      let termX=CX.arm+b.w/2;                       // where this arm hands off to the total
+      let chipLines=null;
+      if(free && (t.up || t.rm)){
+        // free route: show which provider + model actually served it
+        chipLines=[];
+        if(t.up) chipLines.push(t.up);
+        if(t.rm) chipLines.push(shortModel(t.rm));
+      } else if(!free && t.hk){
+        // paid route: cached (reused) context vs fresh input — ACTUAL TOKENS
+        const reused=t.cr||0, fresh=Math.max(0,(t.pt||0)-reused);
+        chipLines=['reused '+fmtN(reused),'new '+fmtN(fresh)];
+      }
+      if(chipLines && chipLines.length){
+        const ub=boxFor(chipLines,9,11); ub.rx=ub.h/2;
+        nodes.push({id:sid+':up:'+t.call,kind:'chip',cx:CX.chip,cy:ay,w:ub.w,h:ub.h,rx:ub.rx,
+          col,lines:chipLines,fillOp:0.10});
+        links.push({col,x0:CX.arm+b.w/2,y0:ay,x1:CX.chip-ub.w/2,y1:ay});
+        termX=CX.chip+ub.w/2;
+      }
+      links.push({col:'#a855f7',x0:termX,y0:ay,x1:CX.sum-sb.w/2,y1:rc});
+    });
+
+    y+=rowH+ROW_GAP;
+  });
+  return {nodes,links};
+}
+
+function arc(d){
+  const p=d3.path(), mx=(d.x0+d.x1)/2;
+  p.moveTo(d.x0,d.y0);
+  p.bezierCurveTo(mx,d.y0,mx,d.y1,d.x1,d.y1);
+  return p.toString();
+}
+
+function initSvg(){
+  svg=d3.select('#vis');
+  const defs=svg.append('defs');
+  const mk=defs.append('marker').attr('id','arw')
+    .attr('viewBox','0 -4 8 8').attr('refX',7).attr('refY',0)
+    .attr('markerWidth',5.5).attr('markerHeight',5.5)
+    .attr('orient','auto').attr('markerUnits','userSpaceOnUse');
+  mk.append('path').attr('d','M0,-3 L7,0 L0,3 z').attr('fill','context-stroke').attr('opacity',0.72);
+
+  canvas=svg.append('g');
+  gLinks=canvas.append('g').attr('class','links');
+  gParts=canvas.append('g').attr('class','particles');
+  gNodes=canvas.append('g').attr('class','nodes');
+
+  zoom=d3.zoom().scaleExtent([0.25,4]).on('zoom',ev=>canvas.attr('transform',ev.transform));
+  svg.call(zoom).on('dblclick.zoom',null);
+  d3.select('#zin').on('click',()=>svg.transition().duration(200).call(zoom.scaleBy,1.3));
+  d3.select('#zout').on('click',()=>svg.transition().duration(200).call(zoom.scaleBy,1/1.3));
+  d3.select('#fit').on('click',()=>fitView(true));
+}
+
+function fitView(animate){
+  const b=canvas.node().getBBox();
+  if(!b.width||!b.height) return;
+  const W=svg.node().clientWidth||window.innerWidth;
+  const H=svg.node().clientHeight||(window.innerHeight-40);
+  const k=0.9*Math.min(W/b.width,H/b.height);
+  const tx=W/2-k*(b.x+b.width/2), ty=H/2-k*(b.y+b.height/2);
+  const t=d3.zoomIdentity.translate(tx,ty).scale(k);
+  if(animate) svg.transition().duration(400).call(zoom.transform,t);
+  else svg.call(zoom.transform,t);
+}
+
+function drawNode(g){
+  g.each(function(d){
+    const s=d3.select(this); s.selectAll('*').remove();
+    s.append('rect')
+      .attr('x',-d.w/2).attr('y',-d.h/2).attr('width',d.w).attr('height',d.h)
+      .attr('rx',d.rx).attr('ry',d.rx)
+      .attr('fill',d.col).attr('fill-opacity',d.fillOp)
+      .attr('stroke',d.col).attr('stroke-width',d.kind==='origin'?1.25:1.05)
+      .attr('stroke-opacity',0.8);
+    const t=s.append('text').attr('text-anchor','middle')
+      .attr('font-family',"system-ui,'Segoe UI',sans-serif");
+    const chip=d.kind==='chip';
+    const lh=chip?11:13, startY=-(d.lines.length-1)*lh/2;
+    d.lines.forEach((ln,i)=>{
+      t.append('tspan').attr('x',0).attr('dy',i===0?startY+(chip?3.2:3.7):lh)
+        .attr('font-size',chip?9.5:10.5).attr('font-weight',i===0?600:400)
+        .attr('fill', i===0 && d.kind!=='origin' ? d.col : '#d5dee8')
+        .text(ln);
+    });
+  });
+}
+
+function render(){
+  const data=build();
+
+  const lsel=gLinks.selectAll('path.link').data(data.links);
+  lsel.exit().remove();
+  lsel.enter().append('path').attr('class','link').attr('fill','none')
+    .attr('stroke-linecap','round').merge(lsel)
+    .attr('d',arc)
+    .attr('stroke',d=>d.col).attr('stroke-opacity',0.34).attr('stroke-width',1.1)
+    .attr('marker-end','url(#arw)');
+
+  const nsel=gNodes.selectAll('g.node').data(data.nodes,d=>d.id);
+  // exit: arms slide DOWN and fade (rolling off the bottom into the total)
+  nsel.exit().transition().duration(320).attr('opacity',0)
+    .attr('transform',d=>`translate(${d.cx},${d.cy+(d.kind==='arm'?22:0)})`).remove();
+
+  // enter: arms drop in from ABOVE the stack
+  const ent=nsel.enter().append('g').attr('class','node').attr('opacity',0)
+    .attr('transform',d=>`translate(${d.cx},${d.cy-(d.kind==='arm'?20:0)})`);
+
+  // refresh node CONTENT every poll (tokens/cost increment in place);
+  // position only changes when a real new turn shifts the stack
+  const merged=ent.merge(nsel);
+  merged.each(function(d){ d3.select(this).call(drawNode); });
+
+  // Only MOVED nodes animate. A passive chat (no new turn) never moves.
+  merged.each(function(d){
+    const el=d3.select(this);
+    const p=prevPos[d.id];
+    const moved = !p || p[0]!==d.cx || p[1]!==d.cy;
+    if(moved){
+      el.transition().duration(400).attr('opacity',1)
+        .attr('transform',`translate(${d.cx},${d.cy})`);
+    } else {
+      el.interrupt().attr('opacity',1)
+        .attr('transform',`translate(${d.cx},${d.cy})`);
+    }
+  });
+  prevPos={}; data.nodes.forEach(d=>{ prevPos[d.id]=[d.cx,d.cy]; });
+
+  // particles: keep positions stable across polls (no random re-seeding)
+  if(particles.length!==data.links.length){
+    gParts.selectAll('*').remove();
+    particles=data.links.map(l=>{
+      const c=gParts.append('circle').attr('r',1.4).attr('fill',l.col).attr('opacity',0.5);
+      return {c,t:Math.random()};
+    });
+  }
+
+  if(!hasFit){ hasFit=true; requestAnimationFrame(()=>fitView(false)); }
+}
+
+function loop(){
+  const paths=gLinks.selectAll('path.link').nodes();
+  particles.forEach((p,i)=>{
+    const el=paths[i];
+    if(!el||!el.getTotalLength) return;
+    p.t=(p.t+0.0032)%1;
+    const pt=el.getPointAtLength(p.t*el.getTotalLength());
+    p.c.attr('cx',pt.x).attr('cy',pt.y);
+  });
+  requestAnimationFrame(loop);
+}
+
+async function load(){
+  try{
+    const r=await fetch(LIVE_URL,{cache:'no-store'});
+    if(!r.ok) throw new Error('live.json HTTP '+r.status);
+    const j=await r.json();
+    titles=j.titles||{};
+    ingest(j.events||[]);
+    render();
+    if(!raf){raf=true;loop();}
+    const cn=Object.keys(chats).length;
+    const tn=Object.values(chats).reduce((a,c)=>a+c.count,0);
+    const cost=Object.values(chats).reduce((a,c)=>a+c.cost,0);
+    statusEl.className='';
+    statusEl.textContent=`${cn} chat${cn===1?'':'s'} · ${tn} turns · ${fmt$(cost)} est · ${new Date().toLocaleTimeString('en-AU',{hour12:false})}`;
+  }catch(e){ fail(e.message); }
+}
+
+initSvg();
+load();
+setInterval(load,3000);
+</script>
+</body></html>
