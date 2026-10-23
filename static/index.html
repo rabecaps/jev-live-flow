@@ -61,7 +61,10 @@ const modelColor=m=>{
   if(m.includes('gemini')) return '#818cf8';
   return '#a78bfa';
 };
-const shortModel=m=>(m||'?').replace(/^[a-z0-9-]+\//i,'').replace(/-/g,' ');
+const shortModel=m=>{
+  const s=(m||'?').replace(/^[a-z0-9-]+\//i,'').replace(/-/g,' ');
+  return s.length>26 ? s.slice(0,25)+'…' : s;
+};
 const fmtN=n=>n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':String(n||0);
 const fmt$=c=>'$'+(c||0).toFixed(3);
 
@@ -140,62 +143,83 @@ function boxFor(lines,padx,lineH){
 
 function build(){
   const CX={origin:120, arm:470, chip:680, sum:950};
-  const ROW_GAP=40, ARM_GAP=58;
+  const ROW_GAP=40, ARM_GAP=58, CHIP_GAP=26, SUM_GAP=110;
   // STABLE row order: append new chats, drop gone ones, never re-sort by activity
   Object.keys(chats).forEach(id=>{ if(!rowOrder.includes(id)) rowOrder.push(id); });
   for(let i=rowOrder.length-1;i>=0;i--){ if(!chats[rowOrder[i]]) rowOrder.splice(i,1); }
   const rows=rowOrder.map(id=>[id,chats[id]]).slice(0,MAX_CHATS);   // cap rendered chats
-  const nodes=[],links=[];
-  let y=50;
+
+  // ── pass 1: measure ─────────────────────────────────────────────────────
+  // Long model names used to collide with the chip and the TOTAL box because
+  // those sat at fixed columns. Everything is now derived from real widths.
+  const plan=[]; let maxTermRight=CX.arm, maxSbW=0;
 
   rows.forEach(([sid,c])=>{
     const turns=(c.arms||[]);                        // frozen stack — newest first
+    const oLines=[shortTitle(sid)];
+    const ob=boxFor(oLines,16,14); ob.rx=ob.h/2;
+    const sLines=['TOTAL · '+c.count+' turns', fmtN(c.tok)+' tok', fmt$(c.cost)];
+    const sb=boxFor(sLines,16,13); sb.rx=7;
+    maxSbW=Math.max(maxSbW,sb.w);
+
+    const items=turns.map(t=>{
+      const shown=t.rm||t.m;
+      const free=/free/i.test(t.req||'');
+      const lines=[shortModel(shown), fmtN(t.t)+' tok · '+fmt$(t.c)];
+      const b=boxFor(lines,13,13); b.rx=6;
+
+      let chip=null;
+      if(free && (t.up || t.rm)){
+        const cl=[];
+        if(t.up) cl.push(t.up);
+        const rmTxt=t.rm?shortModel(t.rm):'';
+        if(rmTxt && rmTxt!==lines[0]) cl.push(rmTxt);   // don't repeat the arm text
+        if(cl.length){ chip=boxFor(cl,9,11); chip.rx=chip.h/2; }
+      } else if(!free && t.hk){
+        const reused=t.cr||0, fresh=Math.max(0,(t.pt||0)-reused);
+        chip=boxFor(['reused '+fmtN(reused),'new '+fmtN(fresh)],9,11); chip.rx=chip.h/2;
+      }
+      const right=CX.arm+b.w/2+(chip?CHIP_GAP+chip.w:0);
+      if(right>maxTermRight) maxTermRight=right;
+      return {t,shown,col:modelColor(shown),lines,b,chip};
+    });
+
+    plan.push({sid,c,turns,oLines,ob,sb,items});
+  });
+
+  const SUM_X=maxTermRight+SUM_GAP+maxSbW/2;
+
+  // ── pass 2: emit ────────────────────────────────────────────────────────
+  const nodes=[],links=[];
+  let y=50;
+
+  plan.forEach(p=>{
+    const {sid,c,turns,oLines,ob,sb,items}=p;
     const span=(Math.max(turns.length,1)-1)*ARM_GAP;
     const rowH=span+78;
     const rc=y+rowH/2;
 
-    const oLines=[shortTitle(sid)];
-    const ob=boxFor(oLines,16,14); ob.rx=ob.h/2;
     nodes.push({id:'o:'+sid,kind:'origin',cx:CX.origin,cy:rc,w:ob.w,h:ob.h,rx:ob.rx,
       col:'#3b82f6',lines:oLines,fillOp:0.11});
-
-    const sLines=['TOTAL · '+c.count+' turns', fmtN(c.tok)+' tok', fmt$(c.cost)];
-    const sb=boxFor(sLines,16,13); sb.rx=7;
-    nodes.push({id:'p:'+sid,kind:'summary',cx:CX.sum,cy:rc,w:sb.w,h:sb.h,rx:sb.rx,
-      col:'#a855f7',lines:sLines,fillOp:0.13});
+    nodes.push({id:'p:'+sid,kind:'summary',cx:SUM_X,cy:rc,w:sb.w,h:sb.h,rx:sb.rx,
+      col:'#a855f7',lines:sb.lines,fillOp:0.13});
 
     const topY=rc-(turns.length-1)*ARM_GAP/2;
-    turns.forEach((t,j)=>{
+    items.forEach((it,j)=>{
       const ay=topY+j*ARM_GAP;
-      const shown = t.rm || t.m;                     // real served model wins over requested
-      const col=modelColor(shown);
-      const free=/free/i.test(t.req||'');
-      const lines=[shortModel(shown), fmtN(t.t)+' tok · '+fmt$(t.c)];
-      const b=boxFor(lines,13,13); b.rx=6;
-      nodes.push({id:sid+':'+t.call,kind:'arm',cx:CX.arm,cy:ay,w:b.w,h:b.h,rx:b.rx,
-        col,lines,fillOp:0.13});
-      links.push({col,x0:CX.origin+ob.w/2,y0:rc,x1:CX.arm-b.w/2,y1:ay});
+      nodes.push({id:sid+':'+it.t.call,kind:'arm',cx:CX.arm,cy:ay,w:it.b.w,h:it.b.h,rx:it.b.rx,
+        col:it.col,lines:it.lines,fillOp:0.13});
+      links.push({col:it.col,x0:CX.origin+ob.w/2,y0:rc,x1:CX.arm-it.b.w/2,y1:ay});
 
-      let termX=CX.arm+b.w/2;                       // where this arm hands off to the total
-      let chipLines=null;
-      if(free && (t.up || t.rm)){
-        // free route: show which provider + model actually served it
-        chipLines=[];
-        if(t.up) chipLines.push(t.up);
-        if(t.rm) chipLines.push(shortModel(t.rm));
-      } else if(!free && t.hk){
-        // paid route: cached (reused) context vs fresh input — ACTUAL TOKENS
-        const reused=t.cr||0, fresh=Math.max(0,(t.pt||0)-reused);
-        chipLines=['reused '+fmtN(reused),'new '+fmtN(fresh)];
+      let termX=CX.arm+it.b.w/2;
+      if(it.chip){
+        const chipCx=termX+CHIP_GAP+it.chip.w/2;
+        nodes.push({id:sid+':up:'+it.t.call,kind:'chip',cx:chipCx,cy:ay,
+          w:it.chip.w,h:it.chip.h,rx:it.chip.rx,col:it.col,lines:it.chip.lines,fillOp:0.10});
+        links.push({col:it.col,x0:termX,y0:ay,x1:chipCx-it.chip.w/2,y1:ay});
+        termX=chipCx+it.chip.w/2;
       }
-      if(chipLines && chipLines.length){
-        const ub=boxFor(chipLines,9,11); ub.rx=ub.h/2;
-        nodes.push({id:sid+':up:'+t.call,kind:'chip',cx:CX.chip,cy:ay,w:ub.w,h:ub.h,rx:ub.rx,
-          col,lines:chipLines,fillOp:0.10});
-        links.push({col,x0:CX.arm+b.w/2,y0:ay,x1:CX.chip-ub.w/2,y1:ay});
-        termX=CX.chip+ub.w/2;
-      }
-      links.push({col:'#a855f7',x0:termX,y0:ay,x1:CX.sum-sb.w/2,y1:rc});
+      links.push({col:'#a855f7',x0:termX,y0:ay,x1:SUM_X-sb.w/2,y1:rc});
     });
 
     y+=rowH+ROW_GAP;

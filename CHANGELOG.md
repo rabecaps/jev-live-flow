@@ -1,3 +1,14 @@
+## 1.1.3 - 2026-10-24
+Adaptive horizontal layout - no more node collisions on long model names.
+
+- Chips sat at a fixed column (x=680), so a long model name ran straight through
+  them and into the TOTAL box.
+- Layout is now measured before it is emitted: each chip is placed a fixed gap
+  after its own arm, and the TOTAL column is pushed out to clear the widest row.
+- Model names longer than 26 chars are truncated with an ellipsis so a single
+  turn cannot stretch the canvas.
+- Free-route chips no longer repeat the model name already shown in the arm.
+
 ## 1.1.2 - 2026-10-24
 Stop arms vanishing as the server window slides.
 
