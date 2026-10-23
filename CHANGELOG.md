@@ -1,3 +1,11 @@
+## 1.0.7 - 2026-10-24
+Keep the user's view across the auto-refresh.
+
+- The embedded-data branch restored the saved d3 transform, then the first
+  render's auto-fit() overwrote it. It now sets hasFit=true so the restored
+  pan/zoom is kept.
+- Verified: identical transform before/after a refresh cycle while data updated.
+
 ## 1.0.6 — 2026-10-24
 Make the tab truly self-contained (no external requests at all).
 
