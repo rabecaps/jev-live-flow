@@ -1,0 +1,15 @@
+name: jev-live-flow
+version: "1.0.0"
+description: "Live left-to-right visualisation of Hermes ⇄ Jev chat turns: which model served each turn, tokens, cost, cached-vs-new context split, and a rolling per-chat total. Local-only web UI."
+author: "Brad / Hermes"
+kind: standalone
+license: MIT
+tags: [dashboard, observability, routing, cost, live]
+requires_env: []
+python_dependencies: []
+provides_tools:
+  - jev_live_flow_start
+  - jev_live_flow_stop
+  - jev_live_flow_status
+  - jev_live_flow_config
+provides_hooks: []
