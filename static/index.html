@@ -86,7 +86,7 @@ function shortTitle(id){
 let hasFit=false,particles=[],raf=false,prevPos={};
 let lastRenderedChats=0;   // fit when the number of VISIBLE chat rows grows
 
-let turnCache={}, shownCalls={}, lastMaxCall={};
+let turnCache={}, shownCalls={}, lastMaxCall={}, knownCalls={};
 
 function ingest(ev){
   const seen={};
@@ -103,22 +103,31 @@ function ingest(ev){
     (seen[sid]=seen[sid]||[]).push(call);
   });
   Object.keys(seen).forEach(sid=>{
-    const calls=seen[sid].sort((a,b)=>a-b);
-    const max=calls[calls.length-1];
+    // Accumulate the chat's turn numbers across polls. The server only sends
+    // the last 15 minutes, so rebuilding the stack from the current payload
+    // made arms silently slide off as turns aged out, with nothing replacing
+    // them.
+    const known = knownCalls[sid] || (knownCalls[sid]=[]);
+    seen[sid].forEach(n=>{ if(known.indexOf(n)===-1) known.push(n); });
+    known.sort((a,b)=>a-b);
+    if(known.length>200) knownCalls[sid]=known.slice(-200);
+
+    const max=known[known.length-1];
     // ADVANCE THE ARM STACK ONLY WHEN A GENUINELY NEW TURN ARRIVES.
-    // Turns ageing out of the 15-min window must NOT reshuffle the stack.
     if(shownCalls[sid]===undefined || max>(lastMaxCall[sid]||0)){
       lastMaxCall[sid]=max;
-      shownCalls[sid]=calls.slice(-MAX_ARMS).reverse();   // newest first
+      shownCalls[sid]=known.slice(-MAX_ARMS).reverse();   // newest first
     }
   });
   Object.keys(seen).forEach(sid=>{
     if(!chats[sid]) chats[sid]={count:0};
-    const calls=seen[sid];
-    chats[sid].count = Math.max(chats[sid].count||0, calls.length);
-    chats[sid].tok  = calls.reduce((a,n)=>a+(turnCache[sid+':'+n].t||0),0);
-    chats[sid].cost = calls.reduce((a,n)=>a+(turnCache[sid+':'+n].c||0),0);
-    chats[sid].lastTs = Math.max.apply(null,calls.map(n=>turnCache[sid+':'+n].ts||0));
+    const all=knownCalls[sid]||[];
+    // Totals come from the accumulated set so they never shrink when the
+    // server's window slides.
+    chats[sid].count = all.length;
+    chats[sid].tok  = all.reduce((a,n)=>a+((turnCache[sid+':'+n]||{}).t||0),0);
+    chats[sid].cost = all.reduce((a,n)=>a+((turnCache[sid+':'+n]||{}).c||0),0);
+    chats[sid].lastTs = Math.max.apply(null,seen[sid].map(n=>turnCache[sid+':'+n].ts||0));
     chats[sid].arms = (shownCalls[sid]||[]).map(n=>turnCache[sid+':'+n]).filter(Boolean);
   });
 }

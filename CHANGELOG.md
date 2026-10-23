@@ -1,3 +1,15 @@
+## 1.1.2 - 2026-10-24
+Stop arms vanishing as the server window slides.
+
+- The arm stack and the per-chat totals were derived from the CURRENT payload
+  only. The server sends just the last 15 minutes, so as turns aged out the
+  stack silently shrank - you saw the bottom arm slide down and disappear with
+  nothing taking its place.
+- Turn numbers are now accumulated per chat in the browser; the stack advances
+  (and only then) when a genuinely new turn arrives, and totals never shrink.
+  Verified: window slide with no new turn keeps all 5 arms; a new turn shifts
+  the stack with the new arm entering at the top.
+
 ## 1.1.1 - 2026-10-24
 Auto-fit when a new chat row appears.
 
