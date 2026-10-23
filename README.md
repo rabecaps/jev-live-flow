@@ -19,6 +19,29 @@ Design rules baked in:
 - Free models cost `$0.000`.
 - The model shown is what actually ran; it is never guessed from a timestamp match.
 
+## Dependencies
+
+| Requirement | Needed? | Why |
+|---|---|---|
+| Hermes Agent (any recent version) | **required** | the plugin reads `$HERMES_HOME/logs/agent.log` and `$HERMES_HOME/state.db` |
+| Python 3.9+ stdlib only | **required** | no pip packages, no venv changes |
+| Jev router | **optional** | if Jev routes your turns, the model column shows the routed model automatically because that is what `agent.log` records. Without Jev, it shows the requested model. Nothing to configure. |
+| Web UI (`hermes-webui`) | optional | the "Live Flow" tab needs it. Without it the standalone URL still works. |
+
+Nothing else. D3 is bundled and **inlined into the page at build time**, so there
+is no CDN, no node build step, and no network call from the browser.
+
+## Install
+
+1. Copy this folder to `$HERMES_HOME/plugins/jev-live-flow/`.
+2. Enable it: `hermes plugins enable jev-live-flow`
+3. (optional, for the server to survive reboots) install the bundled unit:
+   `cp systemd/jev-live-flow.service ~/.config/systemd/user/ && systemctl --user enable --now jev-live-flow`
+4. Restart the web UI once so it picks up the dashboard tab.
+
+The plugin writes its own `dashboard/dist/index.html` (data + d3 inline) every
+2 seconds, so the tab needs no API, no auth and no CORS.
+
 ## Requirements
 
 - Hermes Agent with `$HERMES_HOME` populated (defaults to `~/.hermes`).

@@ -1,3 +1,17 @@
+## 1.0.6 — 2026-10-24
+Make the tab truly self-contained (no external requests at all).
+
+- The server now renders `dashboard/dist/index.html` every 2s with BOTH d3 and
+  the data payload inlined. The page makes zero subresource requests, so it
+  cannot be broken by the web UI's sandboxed-plugin CSP (opaque origin: fetch
+  is CORS-blocked, subresources lose the session cookie).
+- Page auto-refreshes every 5s and restores the pan/zoom view from
+  sessionStorage, so the refresh is not jarring.
+- Bundled `systemd/jev-live-flow.service` (user unit, %h paths) for durable
+  operation.
+- README documents required vs optional dependencies (Hermes required, Jev
+  optional, Python stdlib only, D3 inlined).
+
 ## 1.0.5 — 2026-10-24
 Fix the WebUI tab for real (verified against the server access log).
 

@@ -52,6 +52,9 @@ class FlowConfig:
     timezone: str = "Australia/Perth"
     # seconds between browser polls (UI side)
     poll_seconds: int = 3
+    # Directory (or file) where the same-origin data file is published for the
+    # web UI plugin tab. Empty = auto-detect a Hermes web UI static dir.
+    snapshot_path: str = ""
 
     @property
     def local_url(self) -> str:
@@ -73,6 +76,8 @@ def load_config() -> FlowConfig:
                     setattr(cfg, key, type(getattr(cfg, key))(raw[key]))
                 except Exception:
                     pass
+        if raw.get("snapshot_path"):
+            cfg.snapshot_path = str(raw["snapshot_path"])
     return cfg
 
 

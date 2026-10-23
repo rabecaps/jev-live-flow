@@ -1,5 +1,5 @@
 name: jev-live-flow
-version: "1.0.5"
+version: "1.0.6"
 description: "Live left-to-right visualisation of Hermes ⇄ Jev chat turns: which model served each turn, tokens, cost, cached-vs-new context split, and a rolling per-chat total. Local-only web UI."
 author: "Brad / Hermes"
 kind: standalone

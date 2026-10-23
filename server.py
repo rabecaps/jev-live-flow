@@ -146,33 +146,33 @@ def build_payload(cfg: FlowConfig) -> dict:
     }
 
 
-def snapshot_target() -> Path | None:
-    """Where to publish a same-origin copy for the dashboard plugin iframe.
+DASH_OUT = Path(__file__).resolve().parent / "dashboard" / "dist" / "index.html"
 
-    The web UI serves /static/* without auth, so a JSON file there is reachable
-    from the sandboxed plugin frame (which loses the session cookie, and cannot
-    call http://host:8780 from an https page).
+
+def build_dashboard_html(cfg: FlowConfig) -> str:
+    """Render the dashboard copy of the UI as ONE self-contained document.
+
+    d3 and the data payload are both inlined, so the page issues no subresource
+    requests. That matters inside the Hermes web UI: plugin pages are served
+    under `CSP: sandbox`, their origin is opaque, and any fetch()/script-src to
+    the app is CORS- or cookie-gated. Self-contained cannot fail that way.
     """
-    override = os.environ.get("JEV_LIVE_FLOW_SNAPSHOT")
-    if override:
-        return Path(override).expanduser()
-    for candidate in (Path("/home/hermes/hermes-webui/static"),
-                      Path.home() / "hermes-webui" / "static"):
-        if candidate.is_dir():
-            return candidate / "jev-live-flow.json"
-    return None
+    src = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    d3 = (STATIC_DIR / "vendor" / "d3.min.js").read_text(encoding="utf-8")
+    src = src.replace('<script src="vendor/d3.min.js"></script>',
+                      "<script>\n" + d3 + "\n</script>", 1)
+    payload = json.dumps(build_payload(cfg))
+    inject = "<script>window.__JEV_DATA__=" + payload + ";</script>"
+    return src.replace("<body>", "<body>\n" + inject, 1)
 
 
 def publish_loop(cfg: FlowConfig, interval: float = 2.0) -> None:
-    target = snapshot_target()
-    if target is None:
-        return
     while True:
         try:
-            data = json.dumps(build_payload(cfg)).encode("utf-8")
-            tmp = target.with_suffix(".json.tmp")
-            tmp.write_bytes(data)
-            tmp.replace(target)          # atomic
+            html = build_dashboard_html(cfg)
+            tmp = DASH_OUT.with_suffix(".html.tmp")
+            tmp.write_text(html, encoding="utf-8")
+            tmp.replace(DASH_OUT)          # atomic
         except Exception:
             pass
         time.sleep(interval)

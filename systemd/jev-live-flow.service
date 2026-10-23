@@ -1,0 +1,14 @@
+[Unit]
+Description=Jev Live Flow dashboard server (jev-live-flow plugin)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.hermes/plugins/jev-live-flow
+Environment=PYTHONPATH=%h/.hermes/plugins/jev-live-flow
+ExecStart=%h/.hermes/hermes-agent/venv/bin/python %h/.hermes/plugins/jev-live-flow/server.py --host 0.0.0.0 --port 8780
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
