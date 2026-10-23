@@ -1,3 +1,12 @@
+## 1.1.1 - 2026-10-24
+Auto-fit when a new chat row appears.
+
+- A locked zoom meant a newly-started chat could appear entirely off-screen
+  with no visual cue. The page now animates to fit whenever the number of
+  VISIBLE chat rows increases (row growth, not just a new session id, so a
+  chat beyond max_chats does not trigger a no-op zoom).
+- Ordinary data updates still never move the view.
+
 ## 1.1.0 - 2026-10-24
 Live updates without page reloads, plus the summary and table frames back.
 

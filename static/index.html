@@ -84,6 +84,7 @@ function shortTitle(id){
   return (pick||id).replace(/[^\w\s.&/+-]/g,'').slice(0,24) || id.slice(0,8);
 }
 let hasFit=false,particles=[],raf=false,prevPos={};
+let lastRenderedChats=0;   // fit when the number of VISIBLE chat rows grows
 
 let turnCache={}, shownCalls={}, lastMaxCall={};
 
@@ -367,6 +368,11 @@ function applyData(j){
   ingest((j&&j.events)||[]);
   render();
   renderSummary(j); renderModels(j);
+  // Fit when a NEW VISIBLE chat row appears; otherwise a locked zoom would
+  // leave it off-screen with no sign anything changed.
+  const rendered=Math.min(rowOrder.filter(function(id){return !!chats[id];}).length, MAX_CHATS);
+  if(rendered>lastRenderedChats) requestAnimationFrame(function(){ fitView(true); });
+  lastRenderedChats=rendered;
   if(!raf){raf=true;loop();}
   const cn=Object.keys(chats).length;
   const tn=Object.values(chats).reduce((a,c)=>a+c.count,0);
