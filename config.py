@@ -45,7 +45,7 @@ def config_path() -> Path:
 
 @dataclass
 class FlowConfig:
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"
     port: int = 8780
     window_minutes: int = 15
     max_arms: int = 5
