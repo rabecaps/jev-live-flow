@@ -39,8 +39,16 @@ is no CDN, no node build step, and no network call from the browser.
    `cp systemd/jev-live-flow.service ~/.config/systemd/user/ && systemctl --user enable --now jev-live-flow`
 4. Restart the web UI once so it picks up the dashboard tab.
 
-The plugin writes its own `dashboard/dist/index.html` (data + d3 inline) every
-2 seconds, so the tab needs no API, no auth and no CORS.
+The plugin publishes two files every 2 seconds into the web UI's public
+`static/` directory:
+
+- `static/jev-live-flow/index.html` - the UI, with d3 inlined
+- `static/jev-live-flow/data.json`  - the live payload (polled every 3s)
+
+`/static/` is the only web-UI path that is both unauthenticated and free of the
+`CSP: sandbox` header that plugin pages receive, so the page polls normally and
+pan/zoom is never reset. Note this means the page is reachable without a login
+on that host (behind whatever edge auth/Cloudflare Access you run).
 
 ## Requirements
 

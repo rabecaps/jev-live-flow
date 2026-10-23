@@ -1,3 +1,16 @@
+## 1.1.0 - 2026-10-24
+Live updates without page reloads, plus the summary and table frames back.
+
+- The tab now lives at /static/jev-live-flow/index.html. /static/ is served by
+  hermes-webui WITHOUT the `CSP: sandbox` that plugin pages get, so it is a
+  normal same-origin page: real fetch() polling every 3s, and pan/zoom is never
+  reset (no reloads at all).
+- Summary bubbles at the top: chats, turns, tokens, est cost, median latency,
+  free turns - totals across all chats.
+- Compact per-model table at the bottom (max 5 rows): model, calls, tokens, cost.
+- New config: max_chats (default 3) caps how many chat rows render;
+  poll_seconds controls refresh; publish_dir overrides where the page is written.
+
 ## 1.0.7 - 2026-10-24
 Keep the user's view across the auto-refresh.
 

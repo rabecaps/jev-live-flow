@@ -52,6 +52,10 @@ class FlowConfig:
     timezone: str = "Australia/Perth"
     # seconds between browser polls (UI side)
     poll_seconds: int = 3
+    # max chats rendered in the graph (keeps it readable)
+    max_chats: int = 3
+    # dir served by the web UI as /static/; empty = auto-detect
+    publish_dir: str = ""
     # Directory (or file) where the same-origin data file is published for the
     # web UI plugin tab. Empty = auto-detect a Hermes web UI static dir.
     snapshot_path: str = ""
@@ -70,14 +74,15 @@ def load_config() -> FlowConfig:
             raw = json.loads(path.read_text() or "{}")
         except Exception:
             raw = {}
-        for key in ("host", "port", "window_minutes", "max_arms", "timezone", "poll_seconds"):
+        for key in ("host", "port", "window_minutes", "max_arms", "timezone",
+                    "poll_seconds", "max_chats"):
             if key in raw and raw[key] is not None:
                 try:
                     setattr(cfg, key, type(getattr(cfg, key))(raw[key]))
                 except Exception:
                     pass
-        if raw.get("snapshot_path"):
-            cfg.snapshot_path = str(raw["snapshot_path"])
+        if raw.get("publish_dir"):
+            cfg.publish_dir = str(raw["publish_dir"])
     return cfg
 
 

@@ -141,40 +141,63 @@ def build_payload(cfg: FlowConfig) -> dict:
         "titles": load_titles(),
         "config": {"window_minutes": cfg.window_minutes,
                    "max_arms": cfg.max_arms,
+                   "max_chats": cfg.max_chats,
                    "poll_seconds": cfg.poll_seconds},
         "generated_at": time.time(),
     }
 
 
-DASH_OUT = Path(__file__).resolve().parent / "dashboard" / "dist" / "index.html"
+def publish_dir() -> Path | None:
+    """Directory the web UI serves publicly as /static/ (no auth, no CSP sandbox).
 
-
-def build_dashboard_html(cfg: FlowConfig) -> str:
-    """Render the dashboard copy of the UI as ONE self-contained document.
-
-    d3 and the data payload are both inlined, so the page issues no subresource
-    requests. That matters inside the Hermes web UI: plugin pages are served
-    under `CSP: sandbox`, their origin is opaque, and any fetch()/script-src to
-    the app is CORS- or cookie-gated. Self-contained cannot fail that way.
+    Plugin pages under /dashboard-plugins/ are served with `CSP: sandbox`, which
+    makes the frame an opaque origin: fetch() is CORS-blocked and subresources
+    lose the session cookie. /static/ has neither restriction, so the flow page
+    lives there and polls normally (no page reloads).
     """
+    override = os.environ.get("JEV_LIVE_FLOW_PUBLISH_DIR") or (
+        load_config().publish_dir or "")
+    if override:
+        return Path(override).expanduser()
+    for candidate in (hermes_home() / "webui-static",
+                      Path.home() / "hermes-webui" / "static",
+                      Path.home() / ".hermes" / "hermes-webui" / "static",
+                      Path("/opt/hermes-webui/static"),
+                      Path("/opt/hermes/webui/static")):
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def build_page() -> str:
+    """The flow UI as a single file: d3 inlined, data fetched relatively."""
     src = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     d3 = (STATIC_DIR / "vendor" / "d3.min.js").read_text(encoding="utf-8")
     src = src.replace('<script src="vendor/d3.min.js"></script>',
                       "<script>\n" + d3 + "\n</script>", 1)
-    payload = json.dumps(build_payload(cfg))
-    inject = "<script>window.__JEV_DATA__=" + payload + ";</script>"
-    return src.replace("<body>", "<body>\n" + inject, 1)
+    return src.replace("const LIVE_URL='./live.json'", "const LIVE_URL='./data.json'", 1)
 
 
 def publish_loop(cfg: FlowConfig, interval: float = 2.0) -> None:
+    base = publish_dir()
+    if base is None:
+        return
+    out = base / "jev-live-flow"
+    out.mkdir(parents=True, exist_ok=True)
+    page_written = False
     while True:
         try:
-            html = build_dashboard_html(cfg)
-            tmp = DASH_OUT.with_suffix(".html.tmp")
-            tmp.write_text(html, encoding="utf-8")
-            tmp.replace(DASH_OUT)          # atomic
+            if not page_written:
+                tmp = out / "index.html.tmp"
+                tmp.write_text(build_page(), encoding="utf-8")
+                tmp.replace(out / "index.html")
+                page_written = True
+            data = json.dumps(build_payload(cfg)).encode("utf-8")
+            tmpd = out / "data.json.tmp"
+            tmpd.write_bytes(data)
+            tmpd.replace(out / "data.json")
         except Exception:
-            pass
+            page_written = False
         time.sleep(interval)
 
 
