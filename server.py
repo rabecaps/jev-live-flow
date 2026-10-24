@@ -159,13 +159,10 @@ def publish_dir() -> Path | None:
         load_config().publish_dir or "")
     if override:
         return Path(override).expanduser()
-    for candidate in (hermes_home() / "webui-static",
-                      Path.home() / "hermes-webui" / "static",
-                      Path.home() / ".hermes" / "hermes-webui" / "static",
-                      Path("/opt/hermes-webui/static"),
-                      Path("/opt/hermes/webui/static")):
-        if candidate.is_dir():
-            return candidate
+    # Deliberately NOT auto-discovered: writing into another application's
+    # install tree must be an explicit, informed choice by the operator, not
+    # something this plugin guesses at. Without publish_dir the plugin does
+    # nothing outside $HERMES_HOME/plugin-data.
     return None
 
 

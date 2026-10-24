@@ -1,3 +1,16 @@
+## 1.2.0 - 2026-10-24
+Catalog-submission readiness.
+
+- Web-UI publishing is now OPT-IN via `publish_dir` (or `JEV_LIVE_FLOW_PUBLISH_DIR`).
+  The plugin no longer probes for and writes into another application's install
+  tree; with no config it writes nothing outside `plugin-data`.
+- Default bind changed from `0.0.0.0` to `127.0.0.1` (loopback). LAN exposure is
+  an explicit choice.
+- Declared `requires_hermes: ">=0.21.0"` in plugin.yaml.
+- Added LICENSE (MIT), a disclosure section in the README, and a screenshot.
+- Removed the unused `dashboard/dist/` duplicate of D3 and the unused
+  `dashboard/plugin_api.py`.
+
 ## 1.1.4 - 2026-10-24
 Snap the layout to three aligned columns.
 
