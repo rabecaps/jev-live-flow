@@ -54,6 +54,12 @@ class FlowConfig:
     poll_seconds: int = 3
     # max chats rendered in the graph (keeps it readable)
     max_chats: int = 3
+    # How far back to look when deciding WHICH chats exist and what their last
+    # turns were. Deliberately much longer than window_minutes: a chat you leave
+    # open but stop typing in should keep its row instead of vanishing.
+    chat_horizon_minutes: int = 720
+    # Newest N calls kept per chat (bounds payload size with a long horizon).
+    max_calls_per_session: int = 40
     # dir served by the web UI as /static/; empty = auto-detect
     publish_dir: str = ""
     # Directory (or file) where the same-origin data file is published for the
@@ -75,7 +81,8 @@ def load_config() -> FlowConfig:
         except Exception:
             raw = {}
         for key in ("host", "port", "window_minutes", "max_arms", "timezone",
-                    "poll_seconds", "max_chats"):
+                    "poll_seconds", "max_chats", "chat_horizon_minutes",
+                    "max_calls_per_session"):
             if key in raw and raw[key] is not None:
                 try:
                     setattr(cfg, key, type(getattr(cfg, key))(raw[key]))

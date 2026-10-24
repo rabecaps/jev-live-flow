@@ -3,7 +3,7 @@
   "label": "Live Flow",
   "description": "Live chat turn flow: which model served each turn, tokens, cost, and cached-vs-new context split.",
   "icon": "Activity",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "tab": {
     "path": "/static/jev-live-flow/index.html",
     "position": "after:skills"

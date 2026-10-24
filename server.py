@@ -114,10 +114,21 @@ def load_live(cfg: FlowConfig) -> list[dict]:
         e["effective_model"] = e["real_model"] or e["requested_model"]
         e["cost_usd"] = estimate_cost(e["effective_model"], e["prompt_tokens"], e["completion_tokens"])
 
-    cutoff = time.time() - cfg.window_minutes * 60
+    cutoff = time.time() - cfg.chat_horizon_minutes * 60
     events = [e for e in events if e["ts"] >= cutoff]
     events.sort(key=lambda e: e["ts"], reverse=True)
-    return events
+    # A chat that goes quiet used to vanish from the graph entirely because the
+    # whole feed was windowed to a few minutes. Discovery now uses a long
+    # horizon and only the newest calls per chat are kept, so an idle-but-open
+    # chat keeps its row and its last turns.
+    by_sess: dict[str, list[dict]] = {}
+    for e in events:
+        by_sess.setdefault(e["session"], []).append(e)
+    kept: list[dict] = []
+    for lst in by_sess.values():
+        kept.extend(lst[: cfg.max_calls_per_session])
+    kept.sort(key=lambda e: e["ts"], reverse=True)
+    return kept
 
 
 def load_titles() -> dict[str, str]:

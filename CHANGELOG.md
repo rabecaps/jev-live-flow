@@ -1,3 +1,17 @@
+## 1.2.1 - 2026-10-24
+Two production bugs.
+
+- A chat that went quiet did not show up at all: the whole feed was windowed to
+  15 minutes, so a chat you left open but stopped typing in vanished from the
+  graph. Chat discovery now uses `chat_horizon_minutes` (default 720 = 12h) and
+  keeps the newest `max_calls_per_session` (default 40) calls per chat.
+- Visible rows are now chosen by most-recent activity, so a chat you just
+  started always gets a slot (previously new chats were appended last and could
+  be cut by `max_chats`). Among chats that keep a slot the order stays stable.
+- The reused/new chip no longer disappears when a provider omits the cache
+  usage field; it reads `cache n/a` instead of rendering nothing.
+- README: `chat_horizon_minutes` / `max_calls_per_session` documented.
+
 ## 1.2.0 - 2026-10-24
 Catalog-submission readiness.
 
